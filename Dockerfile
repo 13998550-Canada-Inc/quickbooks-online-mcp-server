@@ -16,4 +16,4 @@ RUN npm ci --ignore-scripts --omit=dev && \
 EXPOSE 3000
 # supergateway bridges the stdio-based MCP server to Streamable HTTP transport.
 # The MCP endpoint is POST /mcp (same shape as Brave and MS-365).
-ENTRYPOINT ["supergateway", "--stdio", "node /app/dist/index.js", "--port", "3000", "--outputTransport", "streamable-http"]
+ENTRYPOINT ["supergateway", "--stdio", "node /app/dist/index.js", "--port", "3000", "--outputTransport", "streamableHttp"]
