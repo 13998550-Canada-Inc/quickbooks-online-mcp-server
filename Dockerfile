@@ -14,6 +14,6 @@ ENV NODE_ENV=production
 RUN npm ci --ignore-scripts --omit=dev && \
     npm install -g supergateway
 EXPOSE 3000
-# supergateway bridges the stdio-based MCP server to HTTP (SSE transport)
-# Claude Code connects via: type "sse", url "http://<host>:<port>/sse"
-ENTRYPOINT ["supergateway", "--stdio", "node /app/dist/index.js", "--port", "3000"]
+# supergateway bridges the stdio-based MCP server to Streamable HTTP transport.
+# The MCP endpoint is POST /mcp (same shape as Brave and MS-365).
+ENTRYPOINT ["supergateway", "--stdio", "node /app/dist/index.js", "--port", "3000", "--outputTransport", "streamable-http"]
