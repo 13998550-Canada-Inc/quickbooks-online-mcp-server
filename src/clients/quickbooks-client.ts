@@ -41,7 +41,7 @@ class QuickbooksClient {
   }
 
   /**
-   * Fetch refresh_token and realm_id from the CadencePro token endpoint.
+   * Fetch refresh_token and realm_id from the KanDo token endpoint.
    * These are stored (encrypted) in MariaDB after the admin completes the OAuth
    * flow in the MCP Servers settings screen.
    */
@@ -60,7 +60,7 @@ class QuickbooksClient {
     });
 
     if (res.status === 404) {
-      throw new Error('QuickBooks not authorized yet — connect via CadencePro MCP Servers settings');
+      throw new Error('QuickBooks not authorized yet — connect via KanDo MCP Servers settings');
     }
     if (!res.ok) {
       throw new Error(`Token endpoint returned HTTP ${res.status}`);
