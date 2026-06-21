@@ -10,10 +10,11 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 ENV NODE_ENV=production
-# Install production dependencies (skip prepare/build scripts) and supergateway
-RUN npm ci --ignore-scripts --omit=dev && \
-    npm install -g supergateway
+# Install production dependencies (skip prepare/build scripts).
+RUN npm ci --ignore-scripts --omit=dev
 EXPOSE 3000
-# supergateway bridges the stdio-based MCP server to Streamable HTTP transport.
+# The server hosts Streamable HTTP natively (express) on :3000 so it can read the
+# per-request X-QB-* credential headers — supergateway is gone because it could
+# not forward per-request HTTP headers into the stdio child.
 # The MCP endpoint is POST /mcp (same shape as Brave and MS-365).
-ENTRYPOINT ["supergateway", "--stdio", "node /app/dist/index.js", "--port", "3000", "--outputTransport", "streamableHttp"]
+ENTRYPOINT ["node", "/app/dist/index.js"]

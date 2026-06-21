@@ -1,12 +1,16 @@
 import dotenv from "dotenv";
 import QuickBooks from "node-quickbooks";
-import OAuthClient from "intuit-oauth";
+import { getRequestCredentials, getRequestStore } from "../request-context.js";
 
 dotenv.config();
 
+// App-level credentials (the QuickBooks app registration). These are shared by
+// every tenant that connects through this app and are safe to read once at
+// startup. Per-tenant credentials (access token, realm id, refresh token) are
+// NOT read here — they arrive per request, see request-context.ts.
 const client_id     = process.env.QUICKBOOKS_CLIENT_ID;
 const client_secret = process.env.QUICKBOOKS_CLIENT_SECRET;
-const environment   = process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox';
+const environment   = process.env.QUICKBOOKS_ENVIRONMENT || "sandbox";
 
 if (!client_id || !client_secret) {
   throw Error("QUICKBOOKS_CLIENT_ID and QUICKBOOKS_CLIENT_SECRET must be set");
@@ -15,125 +19,62 @@ if (!client_id || !client_secret) {
 class QuickbooksClient {
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private refreshToken?: string;
-  private realmId?: string;
   private readonly environment: string;
-  private accessToken?: string;
-  private accessTokenExpiry?: Date;
-  private quickbooksInstance?: QuickBooks;
-  private oauthClient: OAuthClient;
 
-  constructor(config: {
-    clientId: string;
-    clientSecret: string;
-    environment: string;
-  }) {
+  constructor(config: { clientId: string; clientSecret: string; environment: string }) {
     this.clientId     = config.clientId;
     this.clientSecret = config.clientSecret;
     this.environment  = config.environment;
-    // redirectUri is a required field for OAuthClient but unused in server-side refresh flows.
-    this.oauthClient  = new OAuthClient({
-      clientId:     this.clientId,
-      clientSecret: this.clientSecret,
-      environment:  this.environment,
-      redirectUri:  'http://localhost',
-    });
   }
 
   /**
-   * Fetch refresh_token and realm_id from the KanDo token endpoint.
-   * These are stored (encrypted) in MariaDB after the admin completes the OAuth
-   * flow in the MCP Servers settings screen.
+   * Build a QuickBooks client for the CURRENT request from the per-request
+   * credentials injected by the kan-do MCP proxy. The built client is stashed in
+   * the request-scoped store (never on this singleton) so concurrent requests
+   * from different orgs can never share a connection.
    */
-  private async fetchCredentialsFromKando(): Promise<void> {
-    const endpoint  = process.env.KANDO_TOKEN_ENDPOINT;
-    const secret    = process.env.KANDO_INTERNAL_SECRET;
-    const accountId = process.env.QUICKBOOKS_ACCOUNT_ID;
+  async authenticate(): Promise<QuickBooks> {
+    const credentials = getRequestCredentials();
 
-    if (!endpoint) {
-      throw new Error('KANDO_TOKEN_ENDPOINT is not set — cannot fetch QBO credentials');
+    if (!credentials?.accessToken || !credentials?.realmId) {
+      throw new Error(
+        "No QuickBooks credentials were provided for this request. Connect QuickBooks " +
+          "in your organization settings (Settings → MCP servers → QuickBooks) and try again."
+      );
     }
 
-    const params = new URLSearchParams({ server_key: 'quickbooks', account_id: accountId ?? '' });
-    const res = await fetch(`${endpoint}?${params}`, {
-      headers: { 'X-Internal-Secret': secret ?? '' },
-    });
-
-    if (res.status === 404) {
-      throw new Error('QuickBooks not authorized yet — connect via KanDo MCP Servers settings');
-    }
-    if (!res.ok) {
-      throw new Error(`Token endpoint returned HTTP ${res.status}`);
-    }
-
-    const data = await res.json() as { refresh_token?: string; realm_id?: string };
-    if (!data.refresh_token || !data.realm_id) {
-      throw new Error('Token endpoint response missing refresh_token or realm_id');
-    }
-
-    this.refreshToken = data.refresh_token;
-    this.realmId      = data.realm_id;
-  }
-
-  async refreshAccessToken() {
-    if (!this.refreshToken || !this.realmId) {
-      await this.fetchCredentialsFromKando();
-    }
-
-    try {
-      const authResponse = await this.oauthClient.refreshUsingToken(this.refreshToken!);
-      this.accessToken = authResponse.token.access_token;
-      const expiresIn  = authResponse.token.expires_in || 3600;
-      this.accessTokenExpiry = new Date(Date.now() + expiresIn * 1000);
-      return { access_token: this.accessToken, expires_in: expiresIn };
-    } catch (error: any) {
-      // Credentials may have been refreshed on the PHP side — re-fetch and retry once.
-      await this.fetchCredentialsFromKando();
-      const authResponse = await this.oauthClient.refreshUsingToken(this.refreshToken!);
-      this.accessToken = authResponse.token.access_token;
-      const expiresIn  = authResponse.token.expires_in || 3600;
-      this.accessTokenExpiry = new Date(Date.now() + expiresIn * 1000);
-      return { access_token: this.accessToken, expires_in: expiresIn };
-    }
-  }
-
-  async authenticate() {
-    if (!this.refreshToken || !this.realmId) {
-      await this.fetchCredentialsFromKando();
-    }
-
-    const now = new Date();
-    if (!this.accessToken || !this.accessTokenExpiry || this.accessTokenExpiry <= now) {
-      const tokenResponse = await this.refreshAccessToken();
-      this.accessToken = tokenResponse.access_token;
-    }
-
-    this.quickbooksInstance = new QuickBooks(
+    // kan-do refreshes the access token before forwarding it, so it is valid for
+    // the lifetime of this request. The refresh token is passed through to
+    // node-quickbooks only as a fallback for auto-refresh on a mid-call 401.
+    const quickbooks = new QuickBooks(
       this.clientId,
       this.clientSecret,
-      this.accessToken!,
-      false,
-      this.realmId!,
-      this.environment === 'sandbox',
-      false,
-      null,
-      '2.0',
-      this.refreshToken
+      credentials.accessToken,
+      false, // no token secret (OAuth 2.0)
+      credentials.realmId,
+      this.environment === "sandbox",
+      false, // enableDebugging
+      null, // minorversion
+      "2.0", // OAuth version
+      credentials.refreshToken
     );
 
-    return this.quickbooksInstance;
+    const store = getRequestStore();
+    if (store) store.quickbooks = quickbooks;
+    return quickbooks;
   }
 
-  getQuickbooks() {
-    if (!this.quickbooksInstance) {
-      throw new Error('Quickbooks not authenticated. Call authenticate() first');
+  getQuickbooks(): QuickBooks {
+    const quickbooks = getRequestStore()?.quickbooks;
+    if (!quickbooks) {
+      throw new Error("Quickbooks not authenticated. Call authenticate() first");
     }
-    return this.quickbooksInstance;
+    return quickbooks;
   }
 }
 
 export const quickbooksClient = new QuickbooksClient({
-  clientId:    client_id,
+  clientId:     client_id,
   clientSecret: client_secret,
   environment:  environment,
 });
