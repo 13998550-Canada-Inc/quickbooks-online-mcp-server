@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import QuickBooks from "node-quickbooks";
-import { getRequestCredentials, getRequestStore } from "../request-context.js";
+import { getRequestCredentials, getRequestStore, type QboCredentials } from "../request-context.js";
 
 dotenv.config();
 
@@ -16,7 +16,21 @@ if (!client_id || !client_secret) {
   throw Error("QUICKBOOKS_CLIENT_ID and QUICKBOOKS_CLIENT_SECRET must be set");
 }
 
-class QuickbooksClient {
+/** The current request's credentials, or an actionable error when none were sent. */
+function requireRequestCredentials(): QboCredentials {
+  const credentials = getRequestCredentials();
+
+  if (!credentials?.accessToken || !credentials?.realmId) {
+    throw new Error(
+      "No QuickBooks credentials were provided for this request. Connect QuickBooks " +
+        "in your organization settings (Settings → MCP servers → QuickBooks) and try again."
+    );
+  }
+
+  return credentials;
+}
+
+export class QuickbooksClient {
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly environment: string;
@@ -34,14 +48,7 @@ class QuickbooksClient {
    * from different orgs can never share a connection.
    */
   async authenticate(): Promise<QuickBooks> {
-    const credentials = getRequestCredentials();
-
-    if (!credentials?.accessToken || !credentials?.realmId) {
-      throw new Error(
-        "No QuickBooks credentials were provided for this request. Connect QuickBooks " +
-          "in your organization settings (Settings → MCP servers → QuickBooks) and try again."
-      );
-    }
+    const credentials = requireRequestCredentials();
 
     // kan-do refreshes the access token before forwarding it, so it is valid for
     // the lifetime of this request. The refresh token is passed through to
@@ -70,6 +77,26 @@ class QuickbooksClient {
       throw new Error("Quickbooks not authenticated. Call authenticate() first");
     }
     return quickbooks;
+  }
+
+  // ── Called by every handler on every request ─────────────────────────────
+  // Returns the current request's client, building it on first use. Token
+  // freshness is kan-do's job (it refreshes before forwarding), so there is no
+  // expiry check here.
+  static async getInstance(): Promise<QuickBooks> {
+    return getRequestStore()?.quickbooks ?? quickbooksClient.authenticate();
+  }
+
+  // Static counterpart to getInstance() — returns the current request's raw
+  // OAuth credentials for handlers that call QBO endpoints not wrapped by
+  // node-quickbooks (e.g. POST /upload for binary attachments).
+  static async getAuthCredentials(): Promise<{ accessToken: string; realmId: string; isSandbox: boolean }> {
+    const credentials = requireRequestCredentials();
+    return {
+      accessToken: credentials.accessToken,
+      realmId: credentials.realmId,
+      isSandbox: quickbooksClient.environment === "sandbox",
+    };
   }
 }
 

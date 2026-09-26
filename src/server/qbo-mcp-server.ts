@@ -6,11 +6,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
  * cross-tenant — state.
  */
 export function createQuickbooksMcpServer(): McpServer {
-  return new McpServer({
-    name: "QuickBooks Online MCP Server",
-    version: "1.0.0",
-    capabilities: {
-      tools: {},
+  return new McpServer(
+    {
+      name: "QuickBooks Online MCP Server",
+      version: "1.0.0",
     },
-  });
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
 }
