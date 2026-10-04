@@ -6,7 +6,7 @@ dotenv.config();
 
 // App-level credentials (the QuickBooks app registration). These are shared by
 // every tenant that connects through this app and are safe to read once at
-// startup. Per-tenant credentials (access token, realm id, refresh token) are
+// startup. Per-tenant credentials (access token, realm id) are
 // NOT read here — they arrive per request, see request-context.ts.
 const client_id     = process.env.QUICKBOOKS_CLIENT_ID;
 const client_secret = process.env.QUICKBOOKS_CLIENT_SECRET;
@@ -51,8 +51,8 @@ export class QuickbooksClient {
     const credentials = requireRequestCredentials();
 
     // kan-do refreshes the access token before forwarding it, so it is valid for
-    // the lifetime of this request. The refresh token is passed through to
-    // node-quickbooks only as a fallback for auto-refresh on a mid-call 401.
+    // the lifetime of this request. The refresh token stays with kan-do: this
+    // server never refreshes, so it is never sent here.
     const quickbooks = new QuickBooks(
       this.clientId,
       this.clientSecret,
@@ -62,8 +62,7 @@ export class QuickbooksClient {
       this.environment === "sandbox",
       false, // enableDebugging
       null, // minorversion
-      "2.0", // OAuth version
-      credentials.refreshToken
+      "2.0" // OAuth version
     );
 
     const store = getRequestStore();

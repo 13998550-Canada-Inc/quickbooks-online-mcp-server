@@ -441,7 +441,7 @@ function registerAllTools(server: McpServer) {
  * kan-do MCP proxy forwards each org's credentials per request:
  *   - Authorization: Bearer <access_token>   (required)
  *   - X-QB-Realm-Id: <company_id>             (required)
- *   - X-QB-Refresh-Token: <refresh_token>     (optional, for mid-call refresh)
+ * The refresh token never comes here: refreshing is the proxy's job alone.
  * Header names follow the emerging community convention (see LibreChat's QBO
  * HTTP server). Returns undefined when the mandatory credentials are absent.
  */
@@ -452,12 +452,9 @@ function getRequestCredentials(req: Request): QboCredentials | undefined {
   if (!authHeader || !authHeader.startsWith("Bearer ")) return undefined;
   if (typeof realmId !== "string" || realmId.length === 0) return undefined;
 
-  const refreshToken = req.headers["x-qb-refresh-token"];
-
   return {
     accessToken: authHeader.substring(7),
     realmId,
-    refreshToken: typeof refreshToken === "string" && refreshToken.length > 0 ? refreshToken : undefined,
   };
 }
 
@@ -511,7 +508,12 @@ const main = async () => {
         transport.handleRequest(req, res, body)
       );
     } catch (error) {
-      console.error("Error handling MCP request:", error);
+      // Name and message only: a whole error object can carry the request's
+      // Authorization header or a QuickBooks response body, and neither may be logged.
+      console.error(
+        "Error handling MCP request:",
+        error instanceof Error ? `${error.name}: ${error.message}` : typeof error
+      );
       if (!res.headersSent) {
         res.status(500).json({
           jsonrpc: "2.0",

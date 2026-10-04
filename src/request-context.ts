@@ -5,8 +5,8 @@ import type QuickBooks from "node-quickbooks";
  * Per-request context for the HTTP transport.
  *
  * This server is a stateless executor for a single QuickBooks company *per
- * request*: kan-do's MCP proxy injects the access token, realm id and (optional)
- * refresh token for the requesting org as HTTP headers on every call. Those
+ * request*: kan-do's MCP proxy injects the access token and realm id for the
+ * requesting org as HTTP headers on every call. Those
  * credentials are read once in the request handler (see index.ts) and carried
  * through async execution here so that the QuickBooks client can pick them up
  * without threading them through every tool handler.
@@ -17,7 +17,6 @@ import type QuickBooks from "node-quickbooks";
 export type QboCredentials = {
   accessToken: string;
   realmId: string;
-  refreshToken?: string;
 };
 
 type RequestContext = {

@@ -150,15 +150,19 @@ async function uploadAttachableFile(
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () => {
           const responseText = Buffer.concat(chunks).toString("utf-8");
+          // Never log the response body: it is the customer's QuickBooks data (Intuit's
+          // security requirements forbid logging it). The status and intuit_tid are what
+          // Intuit support needs to trace a failed call.
+          const intuitTid = res.headers?.["intuit_tid"] ?? "none";
           if (res.statusCode && res.statusCode >= 400) {
-            console.error(`[qbo-attachable-upload] QBO ${res.statusCode}: ${responseText}`);
+            console.error(`[qbo-attachable-upload] QBO ${res.statusCode} (intuit_tid ${intuitTid})`);
             reject(new Error(redactedUploadError(res.statusCode)));
             return;
           }
           try {
             resolve(JSON.parse(responseText) as unknown);
           } catch {
-            console.error(`[qbo-attachable-upload] QBO ${res.statusCode} non-JSON: ${responseText}`);
+            console.error(`[qbo-attachable-upload] QBO ${res.statusCode} non-JSON response (intuit_tid ${intuitTid})`);
             reject(new Error(redactedUploadError(res.statusCode)));
           }
         });
